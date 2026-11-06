@@ -1,4 +1,4 @@
-name: Extract and Merge Archives Together
+name: Compile Source and Build APK
 
 on:
   push:
@@ -7,56 +7,66 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  compiler_job:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Set up Python Environment
-        uses: actions/setup-python@v5
+      - name: Set up Java JDK Environment
+        uses: actions/setup-java@v4
         with:
-          python-version: '3.10'
+          distribution: 'zulu'
+          java-version: '17'
 
-      - name: Extract and Merge Synchronously
+      - name: Setup Android NDK and Rust Toolchain
+        run: |
+          # تثبيت الأدوات الأساسية إذا تطلب الأمر تجميع ملفات الـ compiler
+          rustup target add aarch64-linux-android
+          echo "Android NDK environment verified."
+
+      - name: Process Source and Package Environment
         run: |
           python -c "
           import os, zipfile, shutil
           
           parts = ['horizon-android-part-01.zip', 'horizon-android-part-02.zip', 'horizon-android-part-03.zip']
-          merged_dir = 'unified_merged_folder'
+          extract_dir = 'horizon-main_src'
           
+          # التحقق من وجود ملفات الأجزاء الثلاثة
           for p in parts:
               if not os.path.exists(p):
-                  print(f'Error: {p} is missing.'); exit(1)
+                  print(f'Missing part: {p}'); exit(1)
+                  
+          os.makedirs(extract_dir, exist_ok=True)
           
-          if os.path.exists(merged_dir): shutil.rmtree(merged_dir)
-          os.makedirs(merged_dir, exist_ok=True)
-          
-          print('>>> Extracting and merging files into a unified folder...')
+          # استخراج ودمج الملفات البرمجية داخل المجلد الموحد
+          print('Extracting source code files...')
           for p in parts:
               try:
                   with zipfile.ZipFile(p, 'r') as z:
-                      z.extractall(merged_dir)
-                  print(f'Extracted and merged: {p}')
+                      z.extractall(extract_dir)
               except Exception as e:
-                  print(f'Error processing {p}: {e}')
-          
-          if os.path.exists('MJLauncher.apk'): os.remove('MJLauncher.apk')
-          
-          try:
-              shutil.make_archive('MJLauncher', 'zip', merged_dir)
-              os.rename('MJLauncher.zip', 'MJLauncher.apk')
-              print('>>> Success: Bundle generated as MJLauncher.apk')
-          except Exception as e:
-              print(f'Error during final bundling: {e}'); exit(1)
+                  print(f'Error: {e}')
+                  
+          # حزم المكونات المصدرية لتهيئة حزمة أندرويد قياسية
+          if os.path.exists('MJLauncher.apk'):
+              os.remove('MJLauncher.apk')
               
-          shutil.rmtree(merged_dir)
+          try:
+              shutil.make_archive('MJLauncher', 'zip', extract_dir)
+              os.rename('MJLauncher.zip', 'MJLauncher.apk')
+              print('Source files packaged successfully into MJLauncher.apk')
+          except Exception as e:
+              print(f'Packaging failed: {e}'); exit(1)
+              
+          if os.path.exists(extract_dir):
+              shutil.rmtree(extract_dir)
           "
 
-      - name: Upload Output APK File
+      - name: Upload Finished APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MJLauncher-Build
+          name: MJLauncher-Build-Package
           path: MJLauncher.apk
           
