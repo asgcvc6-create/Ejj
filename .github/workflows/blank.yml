@@ -24,27 +24,59 @@ jobs:
           import os, zipfile, shutil
           parts = ['horizon-android-part-01.zip', 'horizon-android-part-02.zip', 'horizon-android-part-03.zip']
           
-          # التحقق من وجود الملفات
           for p in parts:
               if not os.path.exists(p): print(f'Missing: {p}'); exit(1)
           
-          # دمج الملفات
-          with open('merged.zip', 'wb') as f_out:
-              for p in parts:
-                  with open(p, 'rb') as f_in: f_out.write(f_in.read())
+          os.makedirs('extracted_temp', exist_ok=True)
           
-          # استخراج الـ APK
-          if zipfile.is_zipfile('merged.zip'):
-              with zipfile.ZipFile('merged.zip', 'r') as z:
-                  apks = [x for x in z.namelist() if x.endswith('.apk')]
-                  if apks:
-                      z.extract(apks[0])
-                      if os.path.exists('MJLauncher.apk'): os.remove('MJLauncher.apk')
-                      os.rename(apks[0], 'MJLauncher.apk')
-                      print('Done!')
-                      exit(0)
-          print('No APK found')
-          exit(1)
+          # فك ضغط كل الأجزاء بشكل مستقل لرؤية محتوياتها
+          for p in parts:
+              try:
+                  with zipfile.ZipFile(p, 'r') as z:
+                      z.extractall('extracted_temp')
+              except Exception as e:
+                  print(f'Error extracting {p}: {e}')
+
+          # طباعة قائمة بكافة الملفات المستخرجة لنعرف ماذا يوجد بالداخل
+          print('--- LIST OF ALL FILES EXTRACTED ---')
+          all_files = []
+          for root, dirs, files in os.walk('extracted_temp'):
+              for file in files:
+                  full_path = os.path.join(root, file)
+                  all_files.append(full_path)
+                  print(full_path)
+          print('-----------------------------------')
+
+          # البحث عن ملف الـ APK أو أي ملف يبدو كملف تطبيق
+          found_apk = None
+          for f in all_files:
+              if f.lower().endswith('.apk'):
+                  found_apk = f
+                  break
+          
+          if found_apk:
+              if os.path.exists('MJLauncher.apk'): os.remove('MJLauncher.apk')
+              shutil.move(found_apk, 'MJLauncher.apk')
+              print('APK Found and Processed Successfully!')
+              exit(0)
+          else:
+              # إذا لم يجد APK، سيبحث عن ملفات OBB أو ملفات zip داخلية
+              print('No .apk found. Looking for other zip files inside...')
+              for f in all_files:
+                  if f.endswith('.zip') and f != 'merged.zip':
+                      try:
+                          with zipfile.ZipFile(f, 'r') as z:
+                              for internal_file in z.namelist():
+                                  if internal_file.endswith('.apk'):
+                                      z.extract(internal_file, 'final_apk_out')
+                                      shutil.move(os.path.join('final_apk_out', internal_file), 'MJLauncher.apk')
+                                      print('APK found inside internal zip!')
+                                      exit(0)
+                      except Exception:
+                          pass
+              
+              print('CRITICAL ERROR: No APK file found inside the archive structure.')
+              exit(1)
           "
 
       - name: Upload Output APK
