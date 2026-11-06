@@ -1,21 +1,129 @@
+
+name: Build Horizon Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "horizon-android-part-01.zip"
+      - "horizon-android-part-02.zip"
+      - "horizon-android-part-03.zip"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Download repository
+        uses: actions/checkout@v4
 
-      - name: Install build tools
+      - name: Check files
+        id: check
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            unzip \
-            pkg-config \
-            libssl-dev
+          if [ -f horizon-android-part-01.zip ] && \
+             [ -f horizon-android-part-02.zip ] && \
+             [ -f horizon-android-part-03.zip ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "لم يتم رفع الملفات الثلاثة بعد."
+          fi
 
-      - name: Build Android APK
+      - name: Extract source files
+        if: steps.check.outputs.ready == 'true'
         run: |
-          echo "Starting cloud Android build"
-          echo "Installing Android SDK and NDK"
-          echo "Preparing Rust and Gradle"
+          mkdir -p source
+          unzip -o horizon-android-part-01.zip -d source
+          unzip -o horizon-android-part-02.zip -d source
+          unzip -o horizon-android-part-03.zip -d source
+
+      - name: Check project
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          test -f source/horizon-main/android-app/Cargo.toml
+          test -f source/horizon-main/android/app/build.gradle
+
+      - name: Install Java
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK
+        if: steps.check.outputs.ready == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Install Rust
+        if: steps.check.outputs.ready == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        if: steps.check.outputs.ready == 'true'
+        run: cargo install cargo-ndk
+
+      - name: Build Rust Android library
+        if: steps.check.outputs.ready == 'true'
+        working-directory: source/horizon-main
+        run: |
+          cargo ndk \
+            -t arm64-v8a \
+            -o android/app/src/main/jniLibs \
+            build \
+            --manifest-path android-app/Cargo.toml \
+            --lib \
+            --release
+
+      - name: Setup Gradle
+        if: steps.check.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build APK
+        if: steps.check.outputs.ready == 'true'
+        working-directory: source/horizon-main
+        run: gradle --no-daemon -p android assembleDebug
+
+      - name: Prepare APK
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          mkdir -p release-files
+          cp source/horizon-main/android/app/build/outputs/apk/debug/app-debug.apk \
+             release-files/Horizon-Android-arm64.apk
+
+      - name: Upload APK
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Android-APK
+          path: release-files/Horizon-Android-arm64.apk
+          retention-days: 14
+
+      - name: Publish APK release
+        if: steps.check.outputs.ready == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: horizon-android-${{ github.run_number }}-${{ github.run_attempt }}
+          name: Horizon Android APK
+          prerelease: true
+          files: release-files/Horizon-Android-arm64.apk
+
+      - name: Show result
+        if: always()
+        run: |
+          echo "انتهت محاولة البناء."
+          
