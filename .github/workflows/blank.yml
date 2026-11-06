@@ -1,61 +1,97 @@
-import os
-import zipfile
+name: Merge Files and Extract APK
 
-# 1. تحديد أسماء الملفات المقسمة بناءً على الصورة
-parts = [
-    "horizon-android-part-01.zip",
-    "horizon-android-part-02.zip",
-    "horizon-android-part-03.zip"
-]
+on:
+  workflow_dispatch: # يتيح لك تشغيل الزر يدوياً من الموقع
 
-merged_zip = "horizon-android-merged.zip"
-apk_output_name = "MJLauncher.apk"
+jobs:
+  merge_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
 
-print("⏳ جاري دمج ملفات الأجزاء الثلاثة...")
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-# 2. دمج الأجزاء الثلاثة في ملف مضغوط واحد موحد
-try:
-    with open(merged_zip, "wb") as output_file:
-        for part in parts:
-            if os.path.exists(part):
-                with open(part, "rb") as input_file:
-                    output_file.write(input_file.read())
-                print(f"✅ تم دمج: {part}")
-            else:
-                print(f"❌ خطأ: الملف {part} غير موجود في المسار الحالي!")
-                raise FileNotFoundError
+      - name: Run Python Script to Merge and Rename APK
+        run: |
+          import os
+          import zipfile
+          import shutil
 
-    print(f"\n🎉 تم دمج الملفات بنجاح إلى: {merged_zip}")
+          parts = [
+              "horizon-android-part-01.zip",
+              "horizon-android-part-02.zip",
+              "horizon-android-part-03.zip"
+          ]
 
-    # 3. استخراج ملف الـ APK من الملف المدمج وتعديل اسمه إلى MJLauncher
-    print("⏳ جاري استخراج ملف الـ APK وتسميته...")
-    
-    with zipfile.ZipFile(merged_zip, 'r') as zip_ref:
-        # البحث عن أي ملف ينتهي بامتداد .apk داخل المجلد المضغوط
-        apk_files = [f for f in zip_ref.namelist() if f.endswith('.apk')]
-        
-        if apk_files:
-            # استخراج أول ملف APK يعثر عليه
-            source_apk = apk_files[0]
-            zip_ref.extract(source_apk)
-            
-            # إعادة تسمية الملف إلى الاسم المطلوب MJLauncher.apk
-            if os.path.exists(apk_output_name):
-                os.remove(apk_output_name)
-            os.rename(source_apk, apk_output_name)
-            
-            # 4. طباعة رابط تحميل الملف النهائي (مسار محلي أو خادم)
-            current_directory = os.getcwd()
-            download_url = f"file://{os.path.join(current_directory, apk_output_name)}"
-            
-            print("\n" + "="*50)
-            print("🚀 تم تجهيز تطبيقك بنجاح!")
-            print(f"📦 اسم التطبيق: {apk_output_name}")
-            print(f"🔗 رابط تحميل وتثبيت الملف: \n{download_url}")
-            print("="*50)
-        else:
-            print("❌ لم يتم العثور على ملف APK داخل الملفات المضغوطة المدمجة.")
+          merged_zip = "horizon-android-merged.zip"
+          temp_extract_dir = "temp_horizon_extract"
+          apk_output_name = "MJLauncher.apk"
 
-except Exception as e:
-    print(f"حدث خطأ أثناء المعالجة: {e}")
-    
+          print("Checking source files...")
+
+          for part in parts:
+              if not os.path.exists(part):
+                  print(f"Error: Missing required file -> {part}")
+                  exit(1)
+
+          try:
+              print("Merging parts into a single archive...")
+              with open(merged_zip, "wb") as output_file:
+                  for part in parts:
+                      with open(part, "rb") as input_file:
+                          output_file.write(input_file.read())
+
+              if zipfile.is_zipfile(merged_zip):
+                  print("Success: Valid merged zip file created.")
+                  with zipfile.ZipFile(merged_zip, 'r') as zip_ref:
+                      apk_files = [f for f in zip_ref.namelist() if f.endswith('.apk')]
+                      if apk_files:
+                          extracted_path = zip_ref.extract(apk_files[0])
+                          if os.path.exists(apk_output_name):
+                              os.remove(apk_output_name)
+                          os.rename(extracted_path, apk_output_name)
+                          print(f"Application Ready: {apk_output_name}")
+
+              else:
+                  print("Notice: Treating parts as independent archives...")
+                  if os.path.exists(temp_extract_dir):
+                      shutil.rmtree(temp_extract_dir)
+                  os.makedirs(temp_extract_dir, exist_ok=True)
+
+                  for part in parts:
+                      with zipfile.ZipFile(part, 'r') as zip_ref:
+                          zip_ref.extractall(temp_extract_dir)
+
+                  found_apk = None
+                  for root, dirs, files in os.walk(temp_extract_dir):
+                      for file in files:
+                          if file.endswith('.apk'):
+                              found_apk = os.path.join(root, file)
+                              break
+
+                  if found_apk:
+                      if os.path.exists(apk_output_name):
+                          os.remove(apk_output_name)
+                      shutil.move(found_apk, apk_output_name)
+                      print(f"Application Ready: {apk_output_name}")
+                  else:
+                      print("Error: No .apk file found.")
+
+          except Exception as e:
+              print(f"An unexpected error occurred: {e}")
+          finally:
+              if os.path.exists(merged_zip):
+                  os.remove(merged_zip)
+              if os.path.exists(temp_extract_dir):
+                  shutil.rmtree(temp_extract_dir)
+
+      - name: Upload Finished APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MJLauncher-App
+          path: MJLauncher.apk
+          
