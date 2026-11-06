@@ -1,57 +1,68 @@
-name: Compile Source and Build APK
+name: Build Horizon Android APK
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  push:
+    paths:
+      - '*.zip'
+      - '.github/workflows/android-apk.yml'
 
 jobs:
-  compiler_job:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04
+
     steps:
-      - name: Checkout Repository Code
+      - name: Download project files
         uses: actions/checkout@v4
 
-      - name: Set up JDK Environment
+      - name: Extract three project parts
+        run: |
+          mkdir extracted
+          unzip -q horizon-android-part-01.zip -d extracted
+          unzip -q horizon-android-part-02.zip -d extracted
+          unzip -q horizon-android-part-03.zip -d extracted
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: temurin
           java-version: '17'
 
-      - name: Grant Execute Permission for Gradle
-        run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x gradlew
-          elif [ -f "./horizon-main/gradlew" ]; then
-            cd horizon-main && chmod +x gradlew
-          fi
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Build Android App with Gradle
+      - name: Install Android SDK and NDK
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug
-          elif [ -f "./horizon-main/gradlew" ]; then
-            cd horizon-main && ./gradlew assembleDebug
-          else
-            echo "Error: Gradle wrapper not found in the repository."
-            exit 1
-          fi
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
 
-      - name: Locate and Rename Finished APK
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Rust library
+        working-directory: extracted/horizon-main
         run: |
-          FOUND_APK=$(find . -name "*.apk" | head -n 1)
-          if [ -n "$FOUND_APK" ]; then
-            mv "$FOUND_APK" ./MJLauncher.apk
-            echo "Success: Compiled and renamed to MJLauncher.apk"
-          else
-            echo "CRITICAL ERROR: Build finished but no APK file was generated."
-            exit 1
-          fi
+          cargo ndk -t arm64-v8a \
+            -o android/app/src/main/jniLibs build \
+            --manifest-path android-app/Cargo.toml \
+            --lib --release
 
-      - name: Upload Output APK Artifact
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build Android APK
+        working-directory: extracted/horizon-main
+        run: gradle --no-daemon -p android assembleDebug
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MJLauncher-App-Package
-          path: MJLauncher.apk
-          
+          name: Horizon-Android-APK
+          path: extracted/horizon-main/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
