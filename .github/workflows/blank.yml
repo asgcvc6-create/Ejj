@@ -1,25 +1,6 @@
-name: Auto Merge and Build APK
-
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python Environment
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
       - name: Process and Merge ZIP Parts
         run: |
+          python - << 'EOF'
           import os
           import zipfile
           import shutil
@@ -81,10 +62,8 @@ jobs:
           except Exception as e:
               print(f"Error occurred: {e}")
               exit(1)
-
-      - name: Upload Output APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MJLauncher-Build
-          path: MJLauncher.apk
+          finally:
+              if os.path.exists(merged_zip): os.remove(merged_zip)
+              if os.path.exists(temp_extract_dir): shutil.rmtree(temp_extract_dir)
+          EOF
           
