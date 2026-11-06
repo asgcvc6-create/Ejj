@@ -1,0 +1,61 @@
+import os
+import zipfile
+
+# 1. تحديد أسماء الملفات المقسمة بناءً على الصورة
+parts = [
+    "horizon-android-part-01.zip",
+    "horizon-android-part-02.zip",
+    "horizon-android-part-03.zip"
+]
+
+merged_zip = "horizon-android-merged.zip"
+apk_output_name = "MJLauncher.apk"
+
+print("⏳ جاري دمج ملفات الأجزاء الثلاثة...")
+
+# 2. دمج الأجزاء الثلاثة في ملف مضغوط واحد موحد
+try:
+    with open(merged_zip, "wb") as output_file:
+        for part in parts:
+            if os.path.exists(part):
+                with open(part, "rb") as input_file:
+                    output_file.write(input_file.read())
+                print(f"✅ تم دمج: {part}")
+            else:
+                print(f"❌ خطأ: الملف {part} غير موجود في المسار الحالي!")
+                raise FileNotFoundError
+
+    print(f"\n🎉 تم دمج الملفات بنجاح إلى: {merged_zip}")
+
+    # 3. استخراج ملف الـ APK من الملف المدمج وتعديل اسمه إلى MJLauncher
+    print("⏳ جاري استخراج ملف الـ APK وتسميته...")
+    
+    with zipfile.ZipFile(merged_zip, 'r') as zip_ref:
+        # البحث عن أي ملف ينتهي بامتداد .apk داخل المجلد المضغوط
+        apk_files = [f for f in zip_ref.namelist() if f.endswith('.apk')]
+        
+        if apk_files:
+            # استخراج أول ملف APK يعثر عليه
+            source_apk = apk_files[0]
+            zip_ref.extract(source_apk)
+            
+            # إعادة تسمية الملف إلى الاسم المطلوب MJLauncher.apk
+            if os.path.exists(apk_output_name):
+                os.remove(apk_output_name)
+            os.rename(source_apk, apk_output_name)
+            
+            # 4. طباعة رابط تحميل الملف النهائي (مسار محلي أو خادم)
+            current_directory = os.getcwd()
+            download_url = f"file://{os.path.join(current_directory, apk_output_name)}"
+            
+            print("\n" + "="*50)
+            print("🚀 تم تجهيز تطبيقك بنجاح!")
+            print(f"📦 اسم التطبيق: {apk_output_name}")
+            print(f"🔗 رابط تحميل وتثبيت الملف: \n{download_url}")
+            print("="*50)
+        else:
+            print("❌ لم يتم العثور على ملف APK داخل الملفات المضغوطة المدمجة.")
+
+except Exception as e:
+    print(f"حدث خطأ أثناء المعالجة: {e}")
+    
