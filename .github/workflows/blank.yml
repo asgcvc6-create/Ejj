@@ -1,69 +1,55 @@
-      - name: Process and Merge ZIP Parts
+name: Auto Merge and Build APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Merge and Extract APK
         run: |
-          python - << 'EOF'
-          import os
-          import zipfile
-          import shutil
+          python -c "
+          import os, zipfile, shutil
+          parts = ['horizon-android-part-01.zip', 'horizon-android-part-02.zip', 'horizon-android-part-03.zip']
+          
+          # التحقق من وجود الملفات
+          for p in parts:
+              if not os.path.exists(p): print(f'Missing: {p}'); exit(1)
+          
+          # دمج الملفات
+          with open('merged.zip', 'wb') as f_out:
+              for p in parts:
+                  with open(p, 'rb') as f_in: f_out.write(f_in.read())
+          
+          # استخراج الـ APK
+          if zipfile.is_zipfile('merged.zip'):
+              with zipfile.ZipFile('merged.zip', 'r') as z:
+                  apks = [x for x in z.namelist() if x.endswith('.apk')]
+                  if apks:
+                      z.extract(apks[0])
+                      if os.path.exists('MJLauncher.apk'): os.remove('MJLauncher.apk')
+                      os.rename(apks[0], 'MJLauncher.apk')
+                      print('Done!')
+                      exit(0)
+          print('No APK found')
+          exit(1)
+          "
 
-          parts = [
-              "horizon-android-part-01.zip",
-              "horizon-android-part-02.zip",
-              "horizon-android-part-03.zip"
-          ]
-
-          merged_zip = "horizon-android-merged.zip"
-          temp_extract_dir = "temp_horizon_extract"
-          apk_output_name = "MJLauncher.apk"
-
-          print("Checking source files...")
-          for part in parts:
-              if not os.path.exists(part):
-                  print(f"Error: Missing {part}")
-                  exit(1)
-
-          try:
-              print("Merging parts...")
-              with open(merged_zip, "wb") as output_file:
-                  for part in parts:
-                      with open(part, "rb") as input_file:
-                          output_file.write(input_file.read())
-
-              if zipfile.is_zipfile(merged_zip):
-                  with zipfile.ZipFile(merged_zip, 'r') as zip_ref:
-                      apk_files = [f for f in zip_ref.namelist() if f.endswith('.apk')]
-                      if apk_files:
-                          extracted_path = zip_ref.extract(apk_files[0])
-                          if os.path.exists(apk_output_name): os.remove(apk_output_name)
-                          os.rename(extracted_path, apk_output_name)
-                          print("Success via Method 1")
-
-              else:
-                  if os.path.exists(temp_extract_dir): shutil.rmtree(temp_extract_dir)
-                  os.makedirs(temp_extract_dir, exist_ok=True)
-                  for part in parts:
-                      with zipfile.ZipFile(part, 'r') as zip_ref:
-                          zip_ref.extractall(temp_extract_dir)
-
-                  found_apk = None
-                  for root, dirs, files in os.walk(temp_extract_dir):
-                      for file in files:
-                          if file.endswith('.apk'):
-                              found_apk = os.path.join(root, file)
-                              break
-
-                  if found_apk:
-                      if os.path.exists(apk_output_name): os.remove(apk_output_name)
-                      shutil.move(found_apk, apk_output_name)
-                      print("Success via Method 2")
-                  else:
-                      print("Error: No APK found")
-                      exit(1)
-
-          except Exception as e:
-              print(f"Error occurred: {e}")
-              exit(1)
-          finally:
-              if os.path.exists(merged_zip): os.remove(merged_zip)
-              if os.path.exists(temp_extract_dir): shutil.rmtree(temp_extract_dir)
-          EOF
+      - name: Upload Output APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MJLauncher-Build
+          path: MJLauncher.apk
           
