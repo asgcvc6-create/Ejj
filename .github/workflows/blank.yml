@@ -1,7 +1,7 @@
 name: Merge Files and Extract APK
 
 on:
-  workflow_dispatch: # يتيح لك تشغيل الزر يدوياً من الموقع
+  workflow_dispatch:
 
 jobs:
   merge_job:
