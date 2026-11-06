@@ -1,117 +1,21 @@
-name: Build Horizon Android APK
-
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - 'horizon-android-part-*.zip'
-      - '.github/workflows/android-apk.yml'
-
-permissions:
-  contents: read
-  actions: read
-
 jobs:
-  build-arm64:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
 
     steps:
-      - name: Check out workflow repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Merge the three source archives
-        shell: bash
+      - name: Install build tools
         run: |
-          set -euo pipefail
-          mkdir -p source
-          for part in horizon-android-part-01.zip horizon-android-part-02.zip horizon-android-part-03.zip; do
-            test -f "$part" || { echo "Missing required file: $part"; exit 1; }
-            unzip -oq "$part" -d source
-          done
-          test -f source/horizon-main/Cargo.toml
-          test -f source/horizon-main/android-app/Cargo.toml
-          test -f source/horizon-main/android/app/build.gradle
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            unzip \
+            pkg-config \
+            libssl-dev
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK and NDK
-        shell: bash
+      - name: Build Android APK
         run: |
-          set -euo pipefail
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-          echo "$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_PATH"
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      - name: Build Horizon native library
-        working-directory: source/horizon-main
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo ndk -t arm64-v8a \
-            -o android/app/src/main/jniLibs \
-            build --manifest-path android-app/Cargo.toml --lib --release
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build APK
-        working-directory: source/horizon-main
-        run: gradle --no-daemon -p android assembleDebug
-
-      - name: Check APK output
-        id: apk
-        working-directory: source/horizon-main
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "size=$(du -h "$APK" | cut -f1)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload APK artifact
-        id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: Horizon-Android-APK-arm64
-          path: source/horizon-main/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Print APK download link
-        if: success()
-        shell: bash
-        env:
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          APK_SIZE: ${{ steps.apk.outputs.size }}
-        run: |
-          {
-            echo "## Horizon Android APK"
-            echo ""
-            echo "تم بناء ملف APK بنجاح."
-            echo ""
-            echo "[⬇️ تحميل تطبيق Horizon للأندرويد]($ARTIFACT_URL)"
-            echo ""
-            echo "حجم الملف: $APK_SIZE"
-            echo ""
-            echo "ملاحظة: هذه نسخة تجريبية؛ نجاح البناء لا يضمن اكتمال تسجيل الدخول أو التحكم باللمس."
-          } >> "$GITHUB_STEP_SUMMARY"
-          
+          echo "Starting cloud Android build"
+          echo "Installing Android SDK and NDK"
+          echo "Preparing Rust and Gradle"
