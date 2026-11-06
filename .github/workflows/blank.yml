@@ -1,4 +1,4 @@
-name: Auto Merge and Build APK
+name: Compile Source and Build APK
 
 on:
   push:
@@ -7,81 +7,51 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  compiler_job:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Set up Python Environment
-        uses: actions/setup-python@v5
+      - name: Set up JDK Environment
+        uses: actions/setup-java@v4
         with:
-          python-version: '3.10'
+          distribution: 'zulu'
+          java-version: '17'
 
-      - name: Merge and Extract APK
+      - name: Grant Execute Permission for Gradle
         run: |
-          python -c "
-          import os, zipfile, shutil
-          parts = ['horizon-android-part-01.zip', 'horizon-android-part-02.zip', 'horizon-android-part-03.zip']
-          
-          for p in parts:
-              if not os.path.exists(p): print(f'Missing: {p}'); exit(1)
-          
-          os.makedirs('extracted_temp', exist_ok=True)
-          
-          # فك ضغط كل الأجزاء بشكل مستقل لرؤية محتوياتها
-          for p in parts:
-              try:
-                  with zipfile.ZipFile(p, 'r') as z:
-                      z.extractall('extracted_temp')
-              except Exception as e:
-                  print(f'Error extracting {p}: {e}')
+          if [ -f "./gradlew" ]; then
+            chmod +x gradlew
+          elif [ -f "./horizon-main/gradlew" ]; then
+            cd horizon-main && chmod +x gradlew
+          fi
 
-          # طباعة قائمة بكافة الملفات المستخرجة لنعرف ماذا يوجد بالداخل
-          print('--- LIST OF ALL FILES EXTRACTED ---')
-          all_files = []
-          for root, dirs, files in os.walk('extracted_temp'):
-              for file in files:
-                  full_path = os.path.join(root, file)
-                  all_files.append(full_path)
-                  print(full_path)
-          print('-----------------------------------')
+      - name: Build Android App with Gradle
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug
+          elif [ -f "./horizon-main/gradlew" ]; then
+            cd horizon-main && ./gradlew assembleDebug
+          else
+            echo "Error: Gradle wrapper not found in the repository."
+            exit 1
+          fi
 
-          # البحث عن ملف الـ APK أو أي ملف يبدو كملف تطبيق
-          found_apk = None
-          for f in all_files:
-              if f.lower().endswith('.apk'):
-                  found_apk = f
-                  break
-          
-          if found_apk:
-              if os.path.exists('MJLauncher.apk'): os.remove('MJLauncher.apk')
-              shutil.move(found_apk, 'MJLauncher.apk')
-              print('APK Found and Processed Successfully!')
-              exit(0)
-          else:
-              # إذا لم يجد APK، سيبحث عن ملفات OBB أو ملفات zip داخلية
-              print('No .apk found. Looking for other zip files inside...')
-              for f in all_files:
-                  if f.endswith('.zip') and f != 'merged.zip':
-                      try:
-                          with zipfile.ZipFile(f, 'r') as z:
-                              for internal_file in z.namelist():
-                                  if internal_file.endswith('.apk'):
-                                      z.extract(internal_file, 'final_apk_out')
-                                      shutil.move(os.path.join('final_apk_out', internal_file), 'MJLauncher.apk')
-                                      print('APK found inside internal zip!')
-                                      exit(0)
-                      except Exception:
-                          pass
-              
-              print('CRITICAL ERROR: No APK file found inside the archive structure.')
-              exit(1)
-          "
+      - name: Locate and Rename Finished APK
+        run: |
+          FOUND_APK=$(find . -name "*.apk" | head -n 1)
+          if [ -n "$FOUND_APK" ]; then
+            mv "$FOUND_APK" ./MJLauncher.apk
+            echo "Success: Compiled and renamed to MJLauncher.apk"
+          else
+            echo "CRITICAL ERROR: Build finished but no APK file was generated."
+            exit 1
+          fi
 
-      - name: Upload Output APK
+      - name: Upload Output APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MJLauncher-Build
+          name: MJLauncher-App-Package
           path: MJLauncher.apk
           
